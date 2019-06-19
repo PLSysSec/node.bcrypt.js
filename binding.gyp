@@ -3,10 +3,9 @@
     {
       'target_name': 'bcrypt_lib',
       'sources': [
-        'src/blowfish.cc',
-        'src/bcrypt.cc',
         'src/bcrypt_node.cc'
       ],
+      "cflags_cc": [ "-g3", "-std=c++14", "-Wl,--export-dynamic", "-ldl" ],
       'include_dirs' : [
           "<!(node -e \"require('nan')\")"
       ],
