@@ -68,6 +68,10 @@
 #define _PASSWORD_LEN   128             /* max length, not counting NUL */
 #define _SALT_LEN       32              /* max length */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Blowfish context */
 typedef struct BlowfishContext {
 	u_int32_t S[4][256];	/* S-Boxes */
@@ -107,5 +111,9 @@ void bcrypt_gensalt(char, u_int8_t, u_int8_t*, char *);
 void bcrypt(const char *, const char *, char *);
 void encode_salt(char *, u_int8_t *, char, u_int16_t, u_int8_t);
 u_int32_t bcrypt_get_rounds(const char *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

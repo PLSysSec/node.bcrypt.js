@@ -7,12 +7,29 @@
 
 #include "node_blf.h"
 
+#include "RLBox_DynLib.h"
+#include "rlbox.h"
+
+using namespace rlbox;
+
 #define NODE_LESS_THAN (!(NODE_VERSION_AT_LEAST(0, 5, 4)))
 
 using namespace v8;
 using namespace node;
 
+namespace rlbox {
+  tainted<char*, RLBox_DynLib> copyStrToSandbox(RLBoxSandbox<RLBox_DynLib>* sandbox, const char* str) {
+    size_t len = strlen(str);
+
+    tainted<char*, RLBox_DynLib> sandboxStr = sandbox->template mallocInSandbox<char>(len + 1);
+    memcpy(sandbox, sandboxStr, str, len + 1);
+    return sandboxStr;
+  }
+}
+
 namespace {
+
+RLBoxSandbox<RLBox_DynLib>* sandbox;
 
 bool ValidateSalt(const char* salt) {
 
@@ -82,8 +99,18 @@ public:
     ~SaltAsyncWorker() {}
 
     void Execute() {
-        char salt[_SALT_LEN];
-        bcrypt_gensalt(minor_ver, rounds, (u_int8_t *)&seed[0], salt);
+        // REWROTE:
+        // char salt[_SALT_LEN];
+        // bcrypt_gensalt(minor_ver, rounds, (u_int8_t *)&seed[0], salt);
+        // TO:
+        tainted<u_int8_t*, RLBox_DynLib> seedCopy = sandbox->template mallocInSandbox<u_int8_t>(BCRYPT_MAXSALT);
+        memcpy(sandbox, seedCopy, (u_int8_t *)&seed[0], BCRYPT_MAXSALT);
+
+        tainted<char*, RLBox_DynLib> saltOut = sandbox->template mallocInSandbox<char>(_SALT_LEN);
+        sandbox_invoke(sandbox, bcrypt_gensalt,
+                      minor_ver, rounds, seedCopy, saltOut);
+        char* salt = saltOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _SALT_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+        // END
         this->salt = std::string(salt);
     }
 
@@ -154,8 +181,20 @@ NAN_METHOD(GenerateSaltSync) {
     const int32_t rounds = Nan::To<int32_t>(info[1]).FromMaybe(0);
     u_int8_t* seed = (u_int8_t*)Buffer::Data(info[2].As<Object>());
 
-    char salt[_SALT_LEN];
-    bcrypt_gensalt(minor_ver, rounds, seed, salt);
+    // REWROTE:
+    // char salt[_SALT_LEN];
+    // bcrypt_gensalt(minor_ver, rounds, seed, salt);
+    // TO:
+    tainted<u_int8_t*, RLBox_DynLib> seedCopy = sandbox->template mallocInSandbox<u_int8_t>(BCRYPT_MAXSALT);
+    memcpy(sandbox, seedCopy, seed, BCRYPT_MAXSALT);
+
+    tainted<char*, RLBox_DynLib> saltOut = sandbox->template mallocInSandbox<char>(_SALT_LEN);
+    sandbox_invoke(sandbox, bcrypt_gensalt,
+                   minor_ver, rounds, seedCopy, saltOut);
+    char* salt = saltOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _SALT_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+    sandbox->freeInSandbox(seedCopy);
+    sandbox->freeInSandbox(saltOut);
+    // END
 
     info.GetReturnValue().Set(Nan::Encode(salt, strlen(salt), Nan::BINARY));
 }
@@ -176,8 +215,20 @@ class EncryptAsyncWorker : public Nan::AsyncWorker {
             error = "Invalid salt. Salt must be in the form of: $Vers$log2(NumRounds)$saltvalue";
         }
 
-        char bcrypted[_PASSWORD_LEN];
-        bcrypt(input.c_str(), salt.c_str(), bcrypted);
+        // REWROTE:
+        // char bcrypted[_PASSWORD_LEN];
+        // bcrypt(input.c_str(), salt.c_str(), bcrypted);
+        // TO:
+        tainted<char*, RLBox_DynLib> bcryptedOut = sandbox->template mallocInSandbox<char>(_PASSWORD_LEN);
+        tainted<char*, RLBox_DynLib> inputStr = copyStrToSandbox(sandbox, input.c_str());
+        tainted<char*, RLBox_DynLib> saltStr  = copyStrToSandbox(sandbox, salt.c_str());
+        sandbox_invoke(sandbox, bcrypt, inputStr, saltStr, bcryptedOut);
+
+        const char* bcrypted = bcryptedOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _PASSWORD_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+        sandbox->freeInSandbox(bcryptedOut);
+        sandbox->freeInSandbox(inputStr);
+        sandbox->freeInSandbox(saltStr);
+        // END
         output = std::string(bcrypted);
     }
 
@@ -240,8 +291,20 @@ NAN_METHOD(EncryptSync) {
         return;
     }
 
-    char bcrypted[_PASSWORD_LEN];
-    bcrypt(*data, *salt, bcrypted);
+    // REWROTE:
+    // char bcrypted[_PASSWORD_LEN];
+    // bcrypt(*data, *salt, bcrypted);
+    // TO:
+    tainted<char*, RLBox_DynLib> bcryptedOut = sandbox->template mallocInSandbox<char>(_PASSWORD_LEN);
+    tainted<char*, RLBox_DynLib> dataStr = copyStrToSandbox(sandbox, *data);
+    tainted<char*, RLBox_DynLib> saltStr = copyStrToSandbox(sandbox, *salt);
+    sandbox_invoke(sandbox, bcrypt, dataStr, saltStr, bcryptedOut);
+
+    const char* bcrypted = bcryptedOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _PASSWORD_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+    sandbox->freeInSandbox(bcryptedOut);
+    sandbox->freeInSandbox(dataStr);
+    sandbox->freeInSandbox(saltStr);
+    // END
     info.GetReturnValue().Set(Nan::Encode(bcrypted, strlen(bcrypted), Nan::BINARY));
 }
 
@@ -282,9 +345,19 @@ class CompareAsyncWorker : public Nan::AsyncWorker {
     ~CompareAsyncWorker() {}
 
     void Execute() {
-        char bcrypted[_PASSWORD_LEN];
         if (ValidateSalt(encrypted.c_str())) {
-            bcrypt(input.c_str(), encrypted.c_str(), bcrypted);
+            // REWROTE:
+            // char bcrypted[_PASSWORD_LEN];
+            // bcrypt(input.c_str(), encrypted.c_str(), bcrypted);
+            // TO:
+            tainted<char*, RLBox_DynLib> bcryptedOut = sandbox->template mallocInSandbox<char>(_PASSWORD_LEN);
+            sandbox_invoke(sandbox, bcrypt,
+                          copyStrToSandbox(sandbox, input.c_str()),
+                          copyStrToSandbox(sandbox, encrypted.c_str()), bcryptedOut);
+
+            const char* bcrypted = bcryptedOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _PASSWORD_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+            sandbox->freeInSandbox(bcryptedOut);
+            // END
             result = CompareStrings(bcrypted, encrypted.c_str());
         }
     }
@@ -334,9 +407,20 @@ NAN_METHOD(CompareSync) {
     Nan::Utf8String pw(Nan::To<v8::String>(info[0]).ToLocalChecked());
     Nan::Utf8String hash(Nan::To<v8::String>(info[1]).ToLocalChecked());
 
-    char bcrypted[_PASSWORD_LEN];
     if (ValidateSalt(*hash)) {
-        bcrypt(*pw, *hash, bcrypted);
+        // REWROTE:
+        // char bcrypted[_PASSWORD_LEN];
+        // bcrypt(*pw, *hash, bcrypted);
+        // TO:
+        tainted<char*, RLBox_DynLib> bcryptedOut = sandbox->template mallocInSandbox<char>(_PASSWORD_LEN);
+        tainted<char*, RLBox_DynLib> pwStr = copyStrToSandbox(sandbox, *pw);
+        tainted<char*, RLBox_DynLib> hashStr = copyStrToSandbox(sandbox, *hash);
+        sandbox_invoke(sandbox, bcrypt, pwStr, hashStr, bcryptedOut); 
+        const char* bcrypted = bcryptedOut.copyAndVerifyString(sandbox, [](char* val) { return strlen(val) < _PASSWORD_LEN ? RLBox_Verify_Status::SAFE : RLBox_Verify_Status::UNSAFE; }, nullptr);
+        sandbox->freeInSandbox(bcryptedOut);
+        sandbox->freeInSandbox(pwStr);
+        sandbox->freeInSandbox(hashStr);
+        // END
         info.GetReturnValue().Set(Nan::New<Boolean>(CompareStrings(bcrypted, *hash)));
     } else {
         info.GetReturnValue().Set(Nan::False());
@@ -353,12 +437,24 @@ NAN_METHOD(GetRounds) {
     }
 
     Nan::Utf8String hash(Nan::To<v8::String>(info[0]).ToLocalChecked());
-    u_int32_t rounds;
-    if (!(rounds = bcrypt_get_rounds(*hash))) {
-        Nan::ThrowError("invalid hash provided");
-        info.GetReturnValue().Set(Nan::Undefined());
-        return;
+    // REWROTE:
+    // u_int32_t rounds;
+    // if (!(rounds = bcrypt_get_rounds(*hash))) {
+    //     Nan::ThrowError("invalid hash provided");
+    //     info.GetReturnValue().Set(Nan::Undefined());
+    //     return;
+    // }
+    // TO:
+    tainted<char*, RLBox_DynLib> hashStr = copyStrToSandbox(sandbox, *hash);
+    u_int32_t rounds =
+      sandbox_invoke(sandbox, bcrypt_get_rounds, hashStr).UNSAFE_Unverified();
+    sandbox->freeInSandbox(hashStr);
+    if (!rounds) {
+      Nan::ThrowError("invalid hash provided");
+      info.GetReturnValue().Set(Nan::Undefined());
+      return;
     }
+    // END
 
     info.GetReturnValue().Set(Nan::New(rounds));
 }
@@ -366,6 +462,7 @@ NAN_METHOD(GetRounds) {
 } // anonymous namespace
 
 NAN_MODULE_INIT(init) {
+    sandbox = RLBoxSandbox<RLBox_DynLib>::createSandbox("", "./bcrypt.so");
     Nan::Export(target, "gen_salt_sync", GenerateSaltSync);
     Nan::Export(target, "encrypt_sync", EncryptSync);
     Nan::Export(target, "compare_sync", CompareSync);
