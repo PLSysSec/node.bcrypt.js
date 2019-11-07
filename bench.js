@@ -7,7 +7,7 @@ Benchmark.options.delay = 5;
 Benchmark.options.initCount = 10;
 
 {
-  // Benchmark.options.minSamples = 1000;
+  Benchmark.options.minSamples = 1000;
   const suite = new Benchmark.Suite('genSaltSync');
   suite.add('rlbox-genSaltSync', () => {
     rlbox.genSaltSync();
@@ -50,11 +50,11 @@ Benchmark.options.initCount = 10;
   const suite = new Benchmark.Suite('genSalt');
   suite.add('rlbox-genSalt', {
     defer: true,
-    fn: (d) => { rlbox.genSalt(() => { console.log('-');d.resolve(); }); }
+    fn: (d) => { rlbox.genSalt(() => { d.resolve(); }); }
   })
   .add('original-genSalt', {
     defer: true,
-    fn: (d) => { original.genSalt(() => { console.log('+');d.resolve(); }); }
+    fn: (d) => { original.genSalt(() => { d.resolve(); }); }
   })
   .on('cycle', (event) => {
     console.log(String(event.target));
