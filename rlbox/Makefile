@@ -9,7 +9,7 @@ compile: bcrypt.so
 	npm run install
 
 bcrypt.so: src/bcrypt.cc src/blowfish.cc
-	$(CC) $(CFLAGS) -g3 -Wall -shared -fPIC $^ -o $@
+	$(CC) $(CFLAGS) -O3 -shared -fPIC $^ -o $@
 
 
 test: build

@@ -26,7 +26,7 @@
   },
   "scripts": {
     "test": "npm install --build-from-source && nodeunit test",
-    "install": "node-pre-gyp install --fallback-to-build"
+    "install": "node-pre-gyp install --build-from-source"
   },
   "dependencies": {
     "nan": "2.14.0",
