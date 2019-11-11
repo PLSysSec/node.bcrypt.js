@@ -22,7 +22,8 @@
           "-lvalidation_cache", "-lplatform", "-lgio", "-lnccopy_x86_64", "-lrt", "-lpthread",
       ],
       "defines" : [
-        "RLBOX_NACL"
+        "RLBOX_NACL",
+        "BCRYPT_CURR_DIR=\"<!(realpath .)/\""
       ],
       'conditions': [
         [ 'OS=="win"', {

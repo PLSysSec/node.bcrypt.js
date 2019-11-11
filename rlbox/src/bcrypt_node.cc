@@ -10,8 +10,8 @@
 #if defined(RLBOX_NACL)
 #include "RLBox_NaCl.h"
 using T_SandboxType = RLBox_NaCl;
-const char* SANDBOX_RUNTIME = "../../Sandboxing_NaCl/native_client/scons-out/nacl_irt-x86-64/staging/irt_core.nexe";
-const char* SANDBOX_PROGRAM = "./bcrypt.nexe"; 
+const char* SANDBOX_RUNTIME = BCRYPT_CURR_DIR "../../Sandboxing_NaCl/native_client/scons-out/nacl_irt-x86-64/staging/irt_core.nexe";
+const char* SANDBOX_PROGRAM = BCRYPT_CURR_DIR "./bcrypt.nexe"; 
 #else
 #include "RLBox_DynLib.h"
 using T_SandboxType = RLBox_DynLib;
