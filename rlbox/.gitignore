@@ -4,3 +4,5 @@ build
 *.sw[a-z]
 node_modules
 bcrypt.so
+*.nexe
+bcrypt_nacl*.o
